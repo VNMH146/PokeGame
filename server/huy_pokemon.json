@@ -1,0 +1,149 @@
+[
+  {
+    "name": "bulbasaur",
+    "type": [
+      "grass",
+      "poison"
+    ],
+    "base_exp": 64,
+    "stats": [
+      {
+        "name": "hp",
+        "value": 68
+      },
+      {
+        "name": "attack",
+        "value": 74
+      },
+      {
+        "name": "defense",
+        "value": 74
+      },
+      {
+        "name": "special-attack",
+        "value": 98
+      },
+      {
+        "name": "special-defense",
+        "value": 98
+      },
+      {
+        "name": "speed",
+        "value": 45
+      }
+    ],
+    "level": 2,
+    "accumulated_exp": 0,
+    "hp": 0
+  },
+  {
+    "name": "ivysaur",
+    "type": [
+      "grass",
+      "poison"
+    ],
+    "base_exp": 142,
+    "stats": [
+      {
+        "name": "hp",
+        "value": 60
+      },
+      {
+        "name": "attack",
+        "value": 62
+      },
+      {
+        "name": "defense",
+        "value": 63
+      },
+      {
+        "name": "special-attack",
+        "value": 80
+      },
+      {
+        "name": "special-defense",
+        "value": 80
+      },
+      {
+        "name": "speed",
+        "value": 60
+      }
+    ],
+    "level": 1,
+    "accumulated_exp": 0,
+    "hp": 0
+  },
+  {
+    "name": "charizard",
+    "type": [
+      "fire",
+      "flying"
+    ],
+    "base_exp": 267,
+    "stats": [
+      {
+        "name": "hp",
+        "value": 78
+      },
+      {
+        "name": "attack",
+        "value": 84
+      },
+      {
+        "name": "defense",
+        "value": 78
+      },
+      {
+        "name": "special-attack",
+        "value": 109
+      },
+      {
+        "name": "special-defense",
+        "value": 85
+      },
+      {
+        "name": "speed",
+        "value": 100
+      }
+    ],
+    "level": 1,
+    "accumulated_exp": 0,
+    "hp": 0
+  },
+  {
+    "name": "wartortle",
+    "type": [
+      "water"
+    ],
+    "base_exp": 142,
+    "stats": [
+      {
+        "name": "hp",
+        "value": 59
+      },
+      {
+        "name": "attack",
+        "value": 63
+      },
+      {
+        "name": "defense",
+        "value": 80
+      },
+      {
+        "name": "special-attack",
+        "value": 65
+      },
+      {
+        "name": "special-defense",
+        "value": 80
+      },
+      {
+        "name": "speed",
+        "value": 58
+      }
+    ],
+    "level": 1,
+    "accumulated_exp": 0,
+    "hp": 0
+  }
+]

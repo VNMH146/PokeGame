@@ -1,0 +1,38 @@
+[
+  {
+    "name": "ivysaur",
+    "type": [
+      "grass",
+      "poison"
+    ],
+    "base_exp": 142,
+    "stats": [
+      {
+        "name": "hp",
+        "value": 60
+      },
+      {
+        "name": "attack",
+        "value": 62
+      },
+      {
+        "name": "defense",
+        "value": 63
+      },
+      {
+        "name": "special-attack",
+        "value": 80
+      },
+      {
+        "name": "special-defense",
+        "value": 80
+      },
+      {
+        "name": "speed",
+        "value": 60
+      }
+    ],
+    "level": 1,
+    "accumulated_exp": 0
+  }
+]

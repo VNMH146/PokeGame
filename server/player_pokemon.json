@@ -1,0 +1,38 @@
+[
+  {
+    "name": "bulbasaur",
+    "type": [
+      "grass",
+      "poison"
+    ],
+    "base_exp": 64,
+    "stats": [
+      {
+        "name": "hp",
+        "value": 139
+      },
+      {
+        "name": "attack",
+        "value": 151
+      },
+      {
+        "name": "defense",
+        "value": 151
+      },
+      {
+        "name": "special-attack",
+        "value": 200
+      },
+      {
+        "name": "special-defense",
+        "value": 200
+      },
+      {
+        "name": "speed",
+        "value": 45
+      }
+    ],
+    "level": 3,
+    "accumulated_exp": 0
+  }
+]
