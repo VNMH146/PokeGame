@@ -1,455 +1,238 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"net"
-	"os"
 	"strings"
 )
 
-type Stat struct {
-	Name  string `json:"name"`
-	Value int    `json:"value"`
-}
-
-type Pokemon struct {
-	Name           string   `json:"name"`
-	Type           []string `json:"type"`
-	BaseExp        int      `json:"base_exp"`
-	Stats          []Stat   `json:"stats"`
-	Level          int      `json:"level"`
-	AccumulatedExp int      `json:"accumulated_exp"`
-	HP             int      `json:"hp"`
-}
+var players = make(map[string]*Player)
+var battles = make(map[string]*Battle)
 
 type Player struct {
 	Name     string
-	Pokemons []Pokemon
+	Pokemons []*Pokemon
 }
 
-var pokedex []Pokemon
+type Pokemon struct {
+	Name           string
+	Level          int
+	HP             int
+	Attack         int
+	SpecialAttack  int
+	Defense        int
+	SpecialDefense int
+	Speed          int
+	ElementalType  string
+	AccumulatedExp int
+}
 
 type Battle struct {
-	Player1 Player
-	Player2 Player
+	Player1 *Player
+	Player2 *Player
 	Turn    string
 }
 
-var battles = make(map[string]*Battle)
-var playerBattleMap = make(map[string]string) // Maps player name to battle ID
-
-// Load Pokedex
-func loadPokedex(filename string) error {
-	data, err := ioutil.ReadFile(filename)
+func main() {
+	addr, err := net.ResolveUDPAddr("udp", ":8080")
 	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, &pokedex)
-}
-
-// Save Pokémon for a specific player
-func savePlayerPokemonForPlayer(playerName string, pokemonList []Pokemon) error {
-	filename := fmt.Sprintf("%s_pokemon.json", playerName)
-	data, err := json.MarshalIndent(pokemonList, "", "  ")
-	if err != nil {
-		return err
-	}
-	return ioutil.WriteFile(filename, data, 0644)
-}
-
-// Load Pokémon for a specific player
-func loadPlayerPokemonForPlayer(playerName string) ([]Pokemon, error) {
-	filename := fmt.Sprintf("%s_pokemon.json", playerName)
-	data, err := ioutil.ReadFile(filename)
-	if os.IsNotExist(err) {
-		return []Pokemon{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	var pokemonList []Pokemon
-	if err := json.Unmarshal(data, &pokemonList); err != nil {
-		return nil, err
-	}
-	return pokemonList, nil
-}
-
-// Capture Pokémon
-func capturePokemonForPlayer(conn *net.UDPConn, addr *net.UDPAddr, query string) {
-	parts := strings.Split(query, "|")
-	if len(parts) != 2 {
-		conn.WriteToUDP([]byte("Invalid capture request format"), addr)
+		fmt.Println("Error resolving address:", err)
 		return
 	}
 
-	playerName := parts[0]
-	pokemonName := parts[1]
-
-	for _, pokemon := range pokedex {
-		if pokemon.Name == pokemonName {
-			playerPokemon, err := loadPlayerPokemonForPlayer(playerName)
-			if err != nil {
-				conn.WriteToUDP([]byte("Error loading player data"), addr)
-				return
-			}
-
-			pokemon.Level = 1
-			pokemon.AccumulatedExp = 0
-
-			playerPokemon = append(playerPokemon, pokemon)
-
-			if err := savePlayerPokemonForPlayer(playerName, playerPokemon); err != nil {
-				conn.WriteToUDP([]byte("Error saving player data"), addr)
-				return
-			}
-
-			conn.WriteToUDP([]byte(fmt.Sprintf("%s captured successfully", pokemonName)), addr)
-			return
-		}
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		fmt.Println("Error listening:", err)
+		return
 	}
-	conn.WriteToUDP([]byte("Pokemon not found"), addr)
+	defer conn.Close()
+
+	fmt.Println("Server is listening on", addr)
+
+	for {
+		buffer := make([]byte, 1024)
+		n, clientAddr, err := conn.ReadFromUDP(buffer)
+		if err != nil {
+			fmt.Println("Error reading from UDP:", err)
+			continue
+		}
+
+		query := string(buffer[:n])
+		handleQuery(conn, clientAddr, query)
+	}
 }
 
-// Start a battle
-func startBattle(conn *net.UDPConn, addr *net.UDPAddr, query string) {
-	parts := strings.Split(query, "|")
+func handleQuery(conn *net.UDPConn, addr *net.UDPAddr, query string) {
+	parts := strings.Split(query, ":")
+	if len(parts) < 1 {
+		conn.WriteToUDP([]byte("Invalid query format"), addr)
+		return
+	}
+
+	command := parts[0]
+	switch command {
+	case "registerPlayer":
+		registerPlayer(conn, addr, parts[1])
+	case "startBattle":
+		startBattle(conn, addr, parts[1:])
+	case "processBattleTurn":
+		processBattleTurn(conn, addr, parts[1:])
+	default:
+		conn.WriteToUDP([]byte("Unknown command"), addr)
+	}
+}
+
+func registerPlayer(conn *net.UDPConn, addr *net.UDPAddr, playerName string) {
+	if _, exists := players[playerName]; exists {
+		conn.WriteToUDP([]byte("Player already registered"), addr)
+		return
+	}
+
+	players[playerName] = &Player{Name: playerName, Pokemons: make([]*Pokemon, 0)}
+	conn.WriteToUDP([]byte("Player registered successfully"), addr)
+}
+
+func startBattle(conn *net.UDPConn, addr *net.UDPAddr, parts []string) {
 	if len(parts) != 2 {
-		conn.WriteToUDP([]byte("Invalid battle request format"), addr)
+		conn.WriteToUDP([]byte("Invalid startBattle request format"), addr)
 		return
 	}
 
 	player1Name := parts[0]
 	player2Name := parts[1]
 
-	player1Pokemons, err := loadPlayerPokemonForPlayer(player1Name)
-	if err != nil {
-		conn.WriteToUDP([]byte("Error loading player 1 Pokémon"), addr)
+	player1, ok1 := players[player1Name]
+	player2, ok2 := players[player2Name]
+
+	if !ok1 || !ok2 {
+		conn.WriteToUDP([]byte("One or both players not registered"), addr)
 		return
 	}
 
-	player2Pokemons, err := loadPlayerPokemonForPlayer(player2Name)
-	if err != nil {
-		conn.WriteToUDP([]byte("Error loading player 2 Pokémon"), addr)
-		return
-	}
-
-	if len(player1Pokemons) < 3 {
-		conn.WriteToUDP([]byte(fmt.Sprintf("%s needs to capture more Pokémon", player1Name)), addr)
-		return
-	}
-	if len(player2Pokemons) < 3 {
-		conn.WriteToUDP([]byte(fmt.Sprintf("%s needs to capture more Pokémon", player2Name)), addr)
-		return
-	}
-
-	battleID := fmt.Sprintf("%d", rand.Int())
-	battles[battleID] = &Battle{
-		Player1: Player{Name: player1Name, Pokemons: player1Pokemons[:3]},
-		Player2: Player{Name: player2Name, Pokemons: player2Pokemons[:3]},
-		Turn:    player1Name,
-	}
-
-	playerBattleMap[player1Name] = battleID
-	playerBattleMap[player2Name] = battleID
-
-	conn.WriteToUDP([]byte("Battle started with ID: "+battleID), addr)
+	battleID := fmt.Sprintf("%s_vs_%s", player1Name, player2Name)
+	battles[battleID] = &Battle{Player1: player1, Player2: player2, Turn: player1Name}
+	conn.WriteToUDP([]byte(fmt.Sprintf("Battle started between %s and %s", player1Name, player2Name)), addr)
 }
 
-func processBattleTurn(conn *net.UDPConn, addr *net.UDPAddr, query string) {
-	parts := strings.Split(query, "|")
-	if len(parts) < 2 {
-		conn.WriteToUDP([]byte("Invalid turn request format"), addr)
+func processBattleTurn(conn *net.UDPConn, addr *net.UDPAddr, parts []string) {
+	if len(parts) < 3 {
+		conn.WriteToUDP([]byte("Invalid processBattleTurn request format"), addr)
 		return
 	}
 
-	playerName := parts[0]
+	battleID := parts[0]
 	action := parts[1]
+	playerName := parts[2]
 
-	battleID, exists := playerBattleMap[playerName]
-	if !exists {
-		conn.WriteToUDP([]byte("No active battle found for player"), addr)
-		return
-	}
-
-	battle, exists := battles[battleID]
-	if !exists {
+	battle, ok := battles[battleID]
+	if !ok {
 		conn.WriteToUDP([]byte("Battle not found"), addr)
 		return
 	}
 
-	var attacker, defender *Player
-	if battle.Turn == battle.Player1.Name {
-		attacker = &battle.Player1
-		defender = &battle.Player2
-	} else {
-		attacker = &battle.Player2
-		defender = &battle.Player1
-	}
-
-	if playerName != attacker.Name {
-		conn.WriteToUDP([]byte("It's not your turn!"), addr)
+	if battle.Turn != playerName {
+		conn.WriteToUDP([]byte("Not your turn"), addr)
 		return
 	}
 
 	switch action {
 	case "attack":
-		handleAttack(conn, attacker, defender, addr)
+		handleAttack(conn, battle, playerName, addr)
 	case "switch":
-		if len(parts) < 3 {
-			conn.WriteToUDP([]byte("Invalid switch command"), addr)
+		if len(parts) != 4 {
+			conn.WriteToUDP([]byte("Invalid switch request format"), addr)
 			return
 		}
-		handleSwitch(conn, attacker, parts[2], addr)
+		newPokemonName := parts[3]
+		handleSwitch(conn, battle, playerName, newPokemonName, addr)
 	case "surrender":
-		handleSurrender(conn, attacker, defender, addr)
+		handleSurrender(conn, battle, playerName, addr)
 	default:
 		conn.WriteToUDP([]byte("Unknown action"), addr)
-		return
 	}
+}
 
-	if battle.Turn == battle.Player1.Name {
-		battle.Turn = battle.Player2.Name
+func handleAttack(conn *net.UDPConn, battle *Battle, playerName string, addr *net.UDPAddr) {
+	attacker, defender := getPlayers(battle, playerName)
+	attackingPokemon := attacker.Pokemons[0]
+	defendingPokemon := defender.Pokemons[0]
+
+	damage := 0
+	if rand.Intn(2) == 0 {
+		// Normal attack
+		damage = attackingPokemon.Attack - defendingPokemon.Defense
 	} else {
-		battle.Turn = battle.Player1.Name
+		// Special attack
+		elementalMultiplier := 1.0 // This should be calculated based on elemental types
+		damage = int(float64(attackingPokemon.SpecialAttack)*elementalMultiplier) - defendingPokemon.SpecialDefense
 	}
 
-	conn.WriteToUDP([]byte("Turn processed"), addr)
+	if damage < 0 {
+		damage = 0
+	}
+
+	defendingPokemon.HP -= damage
+	if defendingPokemon.HP <= 0 {
+		defendingPokemon.HP = 0
+		conn.WriteToUDP([]byte(fmt.Sprintf("%s's %s fainted!", defender.Name, defendingPokemon.Name)), addr)
+	} else {
+		conn.WriteToUDP([]byte(fmt.Sprintf("%s's %s took %d damage!", defender.Name, defendingPokemon.Name, damage)), addr)
+	}
+
+	// Switch turn
+	battle.Turn = defender.Name
 }
 
-// Handle request
-func handleRequest(conn *net.UDPConn, addr *net.UDPAddr, query string) {
-	parts := strings.Split(query, ":")
-	action := parts[0]
-	args := strings.Join(parts[1:], ":")
-
-	switch action {
-	case "capturePokemon":
-		capturePokemonForPlayer(conn, addr, args)
-	case "startBattle":
-		startBattle(conn, addr, args)
-
-	case "destroyPokemon":
-		destroyPokemon(conn, addr, args)
-
-	default:
-		conn.WriteToUDP([]byte("Unknown action"), addr)
-	}
-}
-
-func destroyPokemon(conn *net.UDPConn, addr *net.UDPAddr, query string) {
-	// Parse the query: "playerName donorPokemon recipientPokemon"
-	parts := strings.Split(query, "|")
-	if len(parts) != 3 {
-		conn.WriteToUDP([]byte("Invalid request format for destroy"), addr)
-		return
-	}
-
-	playerName := parts[0]
-	donor := parts[1]
-	recipient := parts[2]
-
-	fmt.Printf("DestroyPokemon called with Donor: %s, Recipient: %s for Player: %s\n", donor, recipient, playerName)
-
-	// Load player's Pokémon
-	playerPokemon, err := loadPlayerPokemonForPlayer(playerName)
-	if err != nil {
-		fmt.Println("Error loading player data:", err)
-		conn.WriteToUDP([]byte("Error loading player data"), addr)
-		return
-	}
-
-	var donorPokemon *Pokemon
-	var recipientPokemon *Pokemon
-
-	// Find the donor and recipient Pokémon
-	for i, pokemon := range playerPokemon {
-		if pokemon.Name == donor {
-			donorPokemon = &playerPokemon[i]
-		}
-		if pokemon.Name == recipient {
-			recipientPokemon = &playerPokemon[i]
-		}
-	}
-
-	// Ensure both Pokémon exist and are of the same type
-	if donorPokemon == nil || recipientPokemon == nil {
-		fmt.Println("Either donor or recipient does not exist")
-		conn.WriteToUDP([]byte("Both donor and recipient Pokémon must exist"), addr)
-		return
-	}
-
-	sameType := false
-	for _, t1 := range donorPokemon.Type {
-		for _, t2 := range recipientPokemon.Type {
-			if t1 == t2 {
-				sameType = true
-				break
-			}
-		}
-	}
-	if !sameType {
-		fmt.Println("Donor and recipient are not of the same type")
-		conn.WriteToUDP([]byte("Donor and recipient Pokémon must be of the same type"), addr)
-		return
-	}
-
-	// Transfer accumulated experience
-	recipientPokemon.AccumulatedExp += donorPokemon.AccumulatedExp
-	fmt.Printf("Transferred %d experience from %s to %s\n", donorPokemon.AccumulatedExp, donor, recipient)
-
-	// Check if recipient Pokémon can level up
-	for {
-		requiredExp := recipientPokemon.Level * 100 // Fixed experience threshold per level
-		if recipientPokemon.AccumulatedExp >= requiredExp {
-			recipientPokemon.Level++
-			recipientPokemon.AccumulatedExp -= requiredExp // Deduct experience used for leveling up
-			ev := 0.5 + rand.Float64()*0.5                 // Random EV between 0.5 and 1
-			for i, stat := range recipientPokemon.Stats {
-				if stat.Name != "speed" && stat.Name != "dmg_when_atked" {
-					recipientPokemon.Stats[i].Value = int(float64(stat.Value) * (1 + ev))
-				}
-			}
-			fmt.Printf("Leveled up %s to level %d\n", recipient, recipientPokemon.Level)
-		} else {
+func handleSwitch(conn *net.UDPConn, battle *Battle, playerName, newPokemonName string, addr *net.UDPAddr) {
+	player := getPlayer(battle, playerName)
+	for i, pokemon := range player.Pokemons {
+		if pokemon.Name == newPokemonName {
+			player.Pokemons[0], player.Pokemons[i] = player.Pokemons[i], player.Pokemons[0]
+			conn.WriteToUDP([]byte(fmt.Sprintf("%s switched to %s!", playerName, newPokemonName)), addr)
 			break
 		}
 	}
 
-	// Remove the donor Pokémon from the player's list
-	newPokemonList := []Pokemon{}
-	for _, pokemon := range playerPokemon {
-		if pokemon.Name != donorPokemon.Name {
-			newPokemonList = append(newPokemonList, pokemon)
-		}
-	}
-
-	// Save the updated Pokémon list
-	if err := savePlayerPokemonForPlayer(playerName, newPokemonList); err != nil {
-		fmt.Println("Error saving player data:", err)
-		conn.WriteToUDP([]byte("Error saving player data"), addr)
-		return
-	}
-
-	conn.WriteToUDP([]byte("Pokemon destroyed and experience transferred successfully"), addr)
+	// Switch turn
+	battle.Turn = getOpponent(battle, playerName).Name
 }
 
-// Handle battle turns
-// Handle battle turns
+func handleSurrender(conn *net.UDPConn, battle *Battle, playerName string, addr *net.UDPAddr) {
+	winner := getOpponent(battle, playerName)
+	loser := getPlayer(battle, playerName)
 
-func handleAttack(conn *net.UDPConn, attacker, defender *Player, addr *net.UDPAddr) {
-	attackerPokemon := &attacker.Pokemons[0]
-	defenderPokemon := &defender.Pokemons[0]
-
-	// Randomly decide normal or special attack
-	if rand.Intn(2) == 0 {
-		// Normal attack
-		attack := getStat(attackerPokemon, "attack")
-		defense := getStat(defenderPokemon, "defense")
-		damage := max(attack-defense, 1)
-		defenderPokemon.HP -= damage
-		fmt.Printf("%s attacked %s with normal attack. Damage: %d, Remaining HP: %d\n",
-			attackerPokemon.Name, defenderPokemon.Name, damage, defenderPokemon.HP)
-	} else {
-		// Special attack
-		spAttack := getStat(attackerPokemon, "special-attack")
-		spDefense := getStat(defenderPokemon, "special-defense")
-		damage := max(spAttack-spDefense, 1)
-		defenderPokemon.HP -= damage
-		fmt.Printf("%s attacked %s with special attack. Damage: %d, Remaining HP: %d\n",
-			attackerPokemon.Name, defenderPokemon.Name, damage, defenderPokemon.HP)
-	}
-
-	if defenderPokemon.HP <= 0 {
-		fmt.Printf("%s fainted!\n", defenderPokemon.Name)
-		defender.Pokemons = defender.Pokemons[1:]
-		if len(defender.Pokemons) == 0 {
-			conn.WriteToUDP([]byte("Battle won by "+attacker.Name), addr)
-			return
-		}
-		conn.WriteToUDP([]byte(defenderPokemon.Name+" fainted!"), addr)
-	}
-}
-
-func handleSwitch(conn *net.UDPConn, player *Player, newPokemonName string, addr *net.UDPAddr) {
-	for i, pokemon := range player.Pokemons {
-		if pokemon.Name == newPokemonName {
-			// Switch to the new Pokémon
-			player.Pokemons[0], player.Pokemons[i] = player.Pokemons[i], player.Pokemons[0]
-			conn.WriteToUDP([]byte("Switched to "+newPokemonName), addr)
-			return
-		}
-	}
-	conn.WriteToUDP([]byte("Pokemon not found in your list"), addr)
-}
-
-func handleSurrender(conn *net.UDPConn, loser, winner *Player, addr *net.UDPAddr) {
+	// Distribute experience points
 	totalExp := 0
 	for _, pokemon := range loser.Pokemons {
 		totalExp += pokemon.AccumulatedExp
 	}
-
-	expShare := totalExp / len(winner.Pokemons)
-	for i := range winner.Pokemons {
-		winner.Pokemons[i].AccumulatedExp += expShare
+	expPerPokemon := totalExp / len(winner.Pokemons)
+	for _, pokemon := range winner.Pokemons {
+		pokemon.AccumulatedExp += expPerPokemon
 	}
 
-	// Remove players from playerBattleMap
-	delete(playerBattleMap, loser.Name)
-	delete(playerBattleMap, winner.Name)
-
-	conn.WriteToUDP([]byte("Battle won by "+winner.Name), addr)
+	conn.WriteToUDP([]byte(fmt.Sprintf("%s surrendered! %s wins!", playerName, winner.Name)), addr)
+	delete(battles, fmt.Sprintf("%s_vs_%s", battle.Player1.Name, battle.Player2.Name))
 }
 
-func getStat(pokemon *Pokemon, statName string) int {
-	for _, stat := range pokemon.Stats {
-		if stat.Name == statName {
-			return stat.Value
-		}
+func getPlayers(battle *Battle, playerName string) (attacker, defender *Player) {
+	if battle.Player1.Name == playerName {
+		return battle.Player1, battle.Player2
 	}
-	return 0
+	return battle.Player2, battle.Player1
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
+func getPlayer(battle *Battle, playerName string) *Player {
+	if battle.Player1.Name == playerName {
+		return battle.Player1
 	}
-	return b
+	return battle.Player2
 }
 
-func main() {
-	if err := loadPokedex("../pokedex.json"); err != nil {
-		fmt.Println("Error loading Pokedex:", err)
-		return
+func getOpponent(battle *Battle, playerName string) *Player {
+	if battle.Player1.Name == playerName {
+		return battle.Player2
 	}
-
-	addr, err := net.ResolveUDPAddr("udp", ":8080")
-	if err != nil {
-		fmt.Println("Error resolving UDP address:", err)
-		return
-	}
-
-	conn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		fmt.Println("Error starting UDP server:", err)
-		return
-	}
-	defer conn.Close()
-
-	fmt.Println("Server is listening on port 8080")
-
-	buffer := make([]byte, 1024)
-	for {
-		n, clientAddr, err := conn.ReadFromUDP(buffer)
-		if err != nil {
-			fmt.Println("Error reading from client:", err)
-			continue
-		}
-
-		query := string(buffer[:n])
-		go handleRequest(conn, clientAddr, query)
-	}
+	return battle.Player1
 }
